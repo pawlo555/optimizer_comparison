@@ -63,7 +63,6 @@ def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, arg
         metric_logger.meters["acc1"].update(acc1.item(), n=batch_size)
         metric_logger.meters["acc5"].update(acc5.item(), n=batch_size)
         metric_logger.meters["img/s"].update(batch_size / (time.time() - start_time))
-        break
     writer.add_scalar("Loss/train", metric_logger.meters["loss"].global_avg, epoch)
     writer.add_scalar("Acc1/train", metric_logger.meters["acc1"].global_avg, epoch)
     writer.add_scalar("Acc5/train", metric_logger.meters["acc5"].global_avg, epoch)
