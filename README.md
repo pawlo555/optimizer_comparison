@@ -7,7 +7,7 @@ For training:
 ```bash
 cd src
 #AdamW
-python train.py --opt adamw --momentum 0.9 --weight-decay 1e-04 --lr 0.1 --model resnet34 --experiment-name resnet34-adamw
+python train.py --opt adamw --momentum 0.9 --weight-decay 1e-04 --lr 0.001 --model resnet34 --experiment-name resnet34-adamw
 #Lion
-python train.py --opt lion --momentum 0.99 --weight-decay 1e-03 --lr 0.01 --model resnet34 --experiment-name resnet34-lion
+python train.py --opt lion --momentum 0.99 --weight-decay 1e-03 --lr 0.0001 --model resnet34 --experiment-name resnet34-lion
 ```
