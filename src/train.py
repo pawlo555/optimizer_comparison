@@ -17,9 +17,17 @@ from sampler import RASampler
 from torch import nn
 from torch.utils.data.dataloader import default_collate
 from torchvision.transforms.functional import InterpolationMode
+
+from src.plane_dataset import PlaneDataset
 from transforms import get_mixup_cutmix
 from lion import Lion
 from torch.utils.tensorboard import SummaryWriter
+import torchvision.transforms as transforms
+
+transform = transforms.Compose(
+    [transforms.ToTensor(),
+     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+     transforms.Resize(224, antialias=True)])
 
 
 def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args, writer, model_ema=None, scaler=None):
@@ -144,23 +152,32 @@ def load_data(traindir, valdir, args):
     else:
         # We need a default value for the variables below because args may come
         # from train_quantization.py which doesn't define them.
-        auto_augment_policy = getattr(args, "auto_augment", None)
-        random_erase_prob = getattr(args, "random_erase", 0.0)
-        ra_magnitude = getattr(args, "ra_magnitude", None)
-        augmix_severity = getattr(args, "augmix_severity", None)
-        dataset = torchvision.datasets.ImageFolder(
-            traindir,
-            presets.ClassificationPresetTrain(
-                crop_size=train_crop_size,
-                interpolation=interpolation,
-                auto_augment_policy=auto_augment_policy,
-                random_erase_prob=random_erase_prob,
-                ra_magnitude=ra_magnitude,
-                augmix_severity=augmix_severity,
-                backend=args.backend,
-                use_v2=args.use_v2,
-            ),
-        )
+        if args.dataset == "CIFAR100":
+            dataset = torchvision.datasets.CIFAR100('./data', train=True, transform=transform, download=True)
+        else:
+            auto_augment_policy = getattr(args, "auto_augment", None)
+            random_erase_prob = getattr(args, "random_erase", 0.0)
+            ra_magnitude = getattr(args, "ra_magnitude", None)
+            augmix_severity = getattr(args, "augmix_severity", None)
+
+            # Create datasets for training & validation, download if necessary
+            custom_transform = presets.ClassificationPresetTrain(
+                    crop_size=train_crop_size,
+                    interpolation=interpolation,
+                    auto_augment_policy=auto_augment_policy,
+                    random_erase_prob=random_erase_prob,
+                    ra_magnitude=ra_magnitude,
+                    augmix_severity=augmix_severity,
+                    backend=args.backend,
+                    use_v2=args.use_v2,
+                )
+            if args.dataset == "plane":
+                dataset = PlaneDataset("../plane_data", True, custom_transform)
+            else:
+                dataset = torchvision.datasets.ImageFolder(
+                    traindir,
+                    custom_transform
+                )
         if args.cache_dataset:
             print(f"Saving dataset_train to {cache_path}")
             utils.mkdir(os.path.dirname(cache_path))
@@ -181,6 +198,7 @@ def load_data(traindir, valdir, args):
                 preprocessing = torchvision.transforms.Compose([torchvision.transforms.PILToTensor(), preprocessing])
 
         else:
+            print("HERE")
             preprocessing = presets.ClassificationPresetEval(
                 crop_size=val_crop_size,
                 resize_size=val_resize_size,
@@ -188,11 +206,18 @@ def load_data(traindir, valdir, args):
                 backend=args.backend,
                 use_v2=args.use_v2,
             )
+        if args.dataset == "CIFAR100":
+            dataset_test = torchvision.datasets.CIFAR100('./data', train=False, transform=transform, download=True)
+        elif args.dataset == "plane":
+            dataset_test = PlaneDataset(
+                "../plane_data", False, preprocessing
+            )
+        else:
+            dataset_test = torchvision.datasets.ImageFolder(
+                valdir,
+                preprocessing,
+            )
 
-        dataset_test = torchvision.datasets.ImageFolder(
-            valdir,
-            preprocessing,
-        )
         if args.cache_dataset:
             print(f"Saving dataset_test to {cache_path}")
             utils.mkdir(os.path.dirname(cache_path))
@@ -257,7 +282,18 @@ def main(args):
     )
 
     print(f"Creating model with {num_classes} classes")
-    model = torchvision.models.get_model(args.model, weights=args.weights, num_classes=num_classes)
+    if args.model == "efficientnet_v2_m":
+        model = torchvision.models.get_model(args.model, weights=args.weights, num_classes=1000)
+        model.classifier[1] = torch.nn.Linear(1280, num_classes)
+    elif args.model == "efficientnet_v2_s":
+        model = torchvision.models.get_model(args.model, weights=args.weights, num_classes=1000)
+        model.classifier[1] = torch.nn.Linear(1280, num_classes)
+    elif args.model == "resnet50":
+        model = torchvision.models.get_model(args.model, weights=args.weights, num_classes=1000)
+        model.fc = torch.nn.Linear(2048, num_classes)
+    else:
+        model = torchvision.models.get_model(args.model, weights=args.weights, num_classes=num_classes)
+    print(model)
     model.to(device)
 
     if args.distributed and args.sync_bn:
@@ -417,7 +453,7 @@ def get_args_parser(add_help=True):
     )
     parser.add_argument("--epochs", default=90, type=int, metavar="N", help="number of total epochs to run")
     parser.add_argument(
-        "-j", "--workers", default=12, type=int, metavar="N", help="number of data loading workers (default: 12)"
+        "-j", "--workers", default=0, type=int, metavar="N", help="number of data loading workers (default: 12)"
     )
     parser.add_argument("--opt", default="sgd", type=str, help="optimizer")
     parser.add_argument("--lr", default=0.1, type=float, help="initial learning rate")
@@ -535,6 +571,7 @@ def get_args_parser(add_help=True):
     parser.add_argument("--backend", default="PIL", type=str.lower, help="PIL or tensor - case insensitive")
     parser.add_argument("--use-v2", action="store_true", help="Use V2 transforms")
     parser.add_argument("--experiment-name", type=str, default="my_experiment", help="File to store tensorboard data")
+    parser.add_argument("--dataset", default="CIFAR100")
     return parser
 
 
