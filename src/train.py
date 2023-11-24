@@ -19,6 +19,7 @@ from torch.utils.data.dataloader import default_collate
 from torchvision.transforms.functional import InterpolationMode
 
 from src.plane_dataset import PlaneDataset
+from src.resnets import ResNet50, ResNet18
 from transforms import get_mixup_cutmix
 from lion import Lion
 from torch.utils.tensorboard import SummaryWriter
@@ -26,8 +27,9 @@ import torchvision.transforms as transforms
 
 transform = transforms.Compose(
     [transforms.ToTensor(),
-     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-     transforms.Resize(224, antialias=True)])
+     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+     #transforms.Resize(224, antialias=True)
+     ])
 
 
 def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args, writer, model_ema=None, scaler=None):
@@ -285,6 +287,10 @@ def main(args):
     if args.model == "efficientnet_v2_m":
         model = torchvision.models.get_model(args.model, weights=args.weights, num_classes=1000)
         model.classifier[1] = torch.nn.Linear(1280, num_classes)
+    elif args.model == "resnet50_custom":
+        model = ResNet50(num_classes=num_classes)
+    elif args.model == "resnet18_custom":
+        model = ResNet18(num_classes=num_classes)
     elif args.model == "efficientnet_v2_s":
         model = torchvision.models.get_model(args.model, weights=args.weights, num_classes=1000)
         model.classifier[1] = torch.nn.Linear(1280, num_classes)
