@@ -20,6 +20,7 @@ from torchvision.transforms.functional import InterpolationMode
 
 from src.plane_dataset import PlaneDataset
 from src.resnets import ResNet50, ResNet18
+from src.sam import SAM
 from transforms import get_mixup_cutmix
 from lion import Lion
 from torch.utils.tensorboard import SummaryWriter
@@ -27,8 +28,9 @@ import torchvision.transforms as transforms
 
 transform = transforms.Compose(
     [transforms.ToTensor(),
+     transforms.RandomRotation(degrees=(0, 180)),
+     transforms.ColorJitter(brightness=.2, hue=.1),
      transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-     #transforms.Resize(224, antialias=True)
      ])
 
 
@@ -40,25 +42,24 @@ def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, arg
 
     header = f"Epoch: [{epoch}]"
     for i, (image, target) in enumerate(metric_logger.log_every(data_loader, args.print_freq, header)):
+        def closure():
+            loss = criterion(model(image), target)
+            loss.backward()
+            return loss
+
         start_time = time.time()
         image, target = image.to(device), target.to(device)
-        with torch.cuda.amp.autocast(enabled=scaler is not None):
-            output = model(image)
-            loss = criterion(output, target)
+        output = model(image)
+        loss = criterion(output, target)
 
         optimizer.zero_grad()
-        if scaler is not None:
-            scaler.scale(loss).backward()
-            if args.clip_grad_norm is not None:
-                # we should unscale the gradients of optimizer's assigned params if do gradient clipping
-                scaler.unscale_(optimizer)
-                nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
-            scaler.step(optimizer)
-            scaler.update()
+
+        loss.backward()
+        if args.clip_grad_norm is not None:
+            nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
+        if "sam" in args.opt.lower():
+            optimizer.step(closure)
         else:
-            loss.backward()
-            if args.clip_grad_norm is not None:
-                nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
             optimizer.step()
 
         if model_ema and i % args.model_ema_steps == 0:
@@ -200,7 +201,6 @@ def load_data(traindir, valdir, args):
                 preprocessing = torchvision.transforms.Compose([torchvision.transforms.PILToTensor(), preprocessing])
 
         else:
-            print("HERE")
             preprocessing = presets.ClassificationPresetEval(
                 crop_size=val_crop_size,
                 resize_size=val_resize_size,
@@ -335,8 +335,16 @@ def main(args):
         )
     elif opt_name == "adamw":
         optimizer = torch.optim.AdamW(parameters, lr=args.lr, weight_decay=args.weight_decay)
+    elif opt_name == "adam":
+        optimizer = torch.optim.Adam(parameters, lr=args.lr, weight_decay=args.weight_decay)
     elif opt_name == "lion":
         optimizer = Lion(parameters, lr=args.lr, weight_decay=args.weight_decay)
+    elif opt_name == "sam-sgd":
+        base_optimizer = torch.optim.SGD  # define an optimizer for the "sharpness-aware" update
+        optimizer = SAM(parameters, base_optimizer, lr=args.lr, momentum=args.momentum, adaptive=False)
+    elif opt_name == "asam-sgd":
+        base_optimizer = torch.optim.SGD  # define an optimizer for the "sharpness-aware" update
+        optimizer = SAM(parameters, base_optimizer, lr=args.lr, momentum=args.momentum, adaptive=True, rho=2.0)
     else:
         raise RuntimeError(f"Invalid optimizer {args.opt}. Only SGD, RMSprop, Lion and AdamW are supported.")
 
