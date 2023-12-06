@@ -345,6 +345,12 @@ def main(args):
     elif opt_name == "asam-sgd":
         base_optimizer = torch.optim.SGD  # define an optimizer for the "sharpness-aware" update
         optimizer = SAM(parameters, base_optimizer, lr=args.lr, momentum=args.momentum, adaptive=True, rho=2.0)
+    elif opt_name == "sam-adam":
+        base_optimizer = torch.optim.Adam
+        optimizer = SAM(parameters, base_optimizer, lr=args.lr, adaptive=False)
+    elif opt_name == "asam-adam":
+        base_optimizer = torch.optim.Adam
+        optimizer = SAM(parameters, base_optimizer, lr=args.lr, adaptive=True, rho=2.0)
     else:
         raise RuntimeError(f"Invalid optimizer {args.opt}. Only SGD, RMSprop, Lion and AdamW are supported.")
 
