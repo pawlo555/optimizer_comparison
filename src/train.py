@@ -419,6 +419,16 @@ def main(args):
             model_ema.load_state_dict(checkpoint["model_ema"])
         if scaler:
             scaler.load_state_dict(checkpoint["scaler"])
+        with torch.no_grad():
+            if args.permute_weights:
+                print("Permuting model")
+                for weight in model_without_ddp.parameters():
+                    shape = weight.shape
+                    permutation = torch.randperm(int(weight.view(-1).size()[0]))
+                    new_weight = weight.view(-1)[permutation].view(shape)
+                    weight *= 0
+                    weight += new_weight
+                args.start_epoch = 0
 
     if args.test_only:
         # We disable the cudnn benchmarking because it can noticeably affect the accuracy
@@ -592,6 +602,7 @@ def get_args_parser(add_help=True):
     parser.add_argument("--use-v2", action="store_true", help="Use V2 transforms")
     parser.add_argument("--experiment-name", type=str, default="my_experiment", help="File to store tensorboard data")
     parser.add_argument("--dataset", default="CIFAR100")
+    parser.add_argument("--permute-weights", action="store_true", help="Permute weights of each layer")
     return parser
 
 
